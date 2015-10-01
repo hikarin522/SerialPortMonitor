@@ -4,12 +4,15 @@
   "description": "Serial Port Monitor Project Manager",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": ".\\node_modules\\.bin\\electron ./src",
+    "package": ".\\node_modules\\.bin\\electron-packager ./src SerialPortMonitor --platform=win32 --arch=x64 --version=0.30.5"
   },
   "author": "hikari",
   "license": "MIT",
   "devDependencies": {
     "electron-compilers": "^1.0.0",
+    "electron-packager": "^5.1.0",
     "electron-prebuilt": "^0.30.5",
     "gulp": "^3.9.0"
   }

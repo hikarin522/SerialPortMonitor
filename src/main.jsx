@@ -3,6 +3,7 @@
 import app from 'app';
 import BrowserWindow from 'browser-window';
 import CrashReporter from 'crash-reporter';
+import path from 'path';
 
 export default class MainWindow {
 	constructor() {
@@ -14,7 +15,7 @@ export default class MainWindow {
 		});
 
 		app.on('ready', () => {
-			var url = 'file://' + __dirname + '/index.html';
+			var url = path.join('file://', __dirname, './index.html');
 			this.createWindow(url, {width: 800, height: 600});
 		});
 	}

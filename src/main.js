@@ -4,12 +4,12 @@ var path = require('path');
 var compiler = require('electron-compile');
 
 compiler.initWithOptions({
-	cacheDir: './cache',
+	cacheDir: path.join(__dirname, './cache'),
 	compilerOpts: {
 		js: {stage: 0},
 		jsx: {stage:0}
 	}
 });
 
-var main = require('./main.jsx');
+var main = require(path.join(__dirname, './main.jsx'));
 new main();
