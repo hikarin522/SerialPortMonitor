@@ -32,7 +32,7 @@ class Ports extends React.Component {
 	}
 	componentDidMount() {
 		setInterval(() => {
-			cs.GetSerialPorts(null, (err, res) => {
+			cs.GetPorts(null, (err, res) => {
 				if (err) {
 					console.log(err);
 					return;
