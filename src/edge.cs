@@ -17,16 +17,23 @@ public class Helper {
 		return SerialPort.GetPortNames();
 	};
 
+	public class PortInfo {
+		public PortInfo(ManagementBaseObject obj) {
+			Name = obj.GetPropertyValue("Name").ToString();
+			DeviceID = obj.GetPropertyValue("DeviceID").ToString();
+			Caption = obj.GetPropertyValue("Caption").ToString();
+		}
+		public string Name;
+		public string DeviceID;
+		public string Caption;
+	}
+
 	public Func<object, Task<object>> GetPorts = async (i) => {
 		var deviceNameList = new ArrayList();
 		var mc = new ManagementClass("Win32_SerialPort");
 		var manageObjCol = mc.GetInstances();
 		foreach (var manageObj in manageObjCol) {
-			var name = manageObj.GetPropertyValue("Name");
-			if (name == null) {
-				continue;
-			}
-			deviceNameList.Add(name.ToString());
+			deviceNameList.Add(new PortInfo(manageObj));
 		}
 		return deviceNameList;
 	};

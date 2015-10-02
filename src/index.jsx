@@ -19,7 +19,11 @@ class Port extends React.Component {
 	render() {
 		return (
 			<div>
-				<h3>{this.props.port}</h3>
+				<h3>{this.props.Name}</h3>
+				<ul>
+					<li>{this.props.DeviceID}</li>
+					<li>{this.props.Caption}</li>
+				</ul>
 			</div>
 		);
 	}
@@ -44,7 +48,7 @@ class Ports extends React.Component {
 	}
 	render() {
 		var list = this.state.ports.map((port) => {
-			return (<Port port={port}/>);
+			return (<Port {...port}/>);
 		});
 		return (<div>{list}</div>);
 	}
