@@ -32,7 +32,7 @@ class Port extends React.Component {
 class Ports extends React.Component {
 	constructor(props) {
 		super(props);
-		this.state = {ports:{}};
+		this.state = props;
 	}
 	componentDidMount() {
 		setInterval(() => {
@@ -42,13 +42,13 @@ class Ports extends React.Component {
 					return;
 				}
 				console.log(res);
-				this.setState({ports:res});
+				this.setState(res);
 			});
 		}, 2000);
 	}
 	render() {
-		var list = Object.keys(this.state.ports).map((name) => {
-			return (<Port Name={name} Info={this.state.ports[name]} />);
+		var list = Object.keys(this.state).map((name) => {
+			return (<Port Name={name} Info={this.state[name]} />);
 		});
 		return (<div>{list}</div>);
 	}
@@ -56,6 +56,8 @@ class Ports extends React.Component {
 
 $(function() {
 	React.render(<title>Electron!!</title>, document.head);
-	React.render(<div><Hello /><Ports /></div>, document.body);
+	cs.GetPortInfo(null, (err, res) => {
+		React.render(<div><Hello /><Ports {...res}/></div>, document.body);
+	});
 });
 
