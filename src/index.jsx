@@ -17,13 +17,13 @@ class Hello extends React.Component {
 
 class Port extends React.Component {
 	render() {
+		var li = Object.keys(this.props.Info).map((name) => {
+			return (<li>{name}: {this.props.Info[name]}</li>);
+		});
 		return (
 			<div>
 				<h3>{this.props.Name}</h3>
-				<ul>
-					<li>{this.props.DeviceID}</li>
-					<li>{this.props.Caption}</li>
-				</ul>
+				<ul>{li}</ul>
 			</div>
 		);
 	}
@@ -32,11 +32,11 @@ class Port extends React.Component {
 class Ports extends React.Component {
 	constructor(props) {
 		super(props);
-		this.state = {ports:[]};
+		this.state = {ports:{}};
 	}
 	componentDidMount() {
 		setInterval(() => {
-			cs.GetPorts(null, (err, res) => {
+			cs.GetPortInfo(null, (err, res) => {
 				if (err) {
 					console.log(err);
 					return;
@@ -47,8 +47,8 @@ class Ports extends React.Component {
 		}, 2000);
 	}
 	render() {
-		var list = this.state.ports.map((port) => {
-			return (<Port {...port}/>);
+		var list = Object.keys(this.state.ports).map((name) => {
+			return (<Port Name={name} Info={this.state.ports[name]} />);
 		});
 		return (<div>{list}</div>);
 	}

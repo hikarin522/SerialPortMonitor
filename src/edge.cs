@@ -3,7 +3,8 @@ using System;
 using System.Threading.Tasks;
 using System.IO.Ports;
 using System.Management;
-using System.Collections;
+using System.Collections.Generic;
+using System.Text.RegularExpressions;
 
 public class Startup {
 	public async Task<object> Invoke(object input) {
@@ -11,30 +12,30 @@ public class Startup {
 	}
 }
 
-
 public class Helper {
-	public Func<object, Task<object>> GetSerialPorts = async (i) => {
+	public Func<object, Task<object>> GetPortNames = async (i) => {
 		return SerialPort.GetPortNames();
 	};
 
-	public class PortInfo {
-		public PortInfo(ManagementBaseObject obj) {
-			Name = obj.GetPropertyValue("Name").ToString();
-			DeviceID = obj.GetPropertyValue("DeviceID").ToString();
-			Caption = obj.GetPropertyValue("Caption").ToString();
-		}
-		public string Name;
-		public string DeviceID;
-		public string Caption;
-	}
+	public Func<object, Task<object>> GetPortInfo = async (i) => {
+		var infoList = new Dictionary<string, Dictionary<string, object>>();
+		var mc = new ManagementClass("Win32_PnPEntity");
+		var mciList = mc.GetInstances();
+		var nameList = SerialPort.GetPortNames();
 
-	public Func<object, Task<object>> GetPorts = async (i) => {
-		var deviceNameList = new ArrayList();
-		var mc = new ManagementClass("Win32_SerialPort");
-		var manageObjCol = mc.GetInstances();
-		foreach (var manageObj in manageObjCol) {
-			deviceNameList.Add(new PortInfo(manageObj));
+		foreach (string name in nameList) {
+			string pattern = name + @"[\p{P}\p{Z}$]";
+			foreach (var mci in mciList) {
+				if (Regex.IsMatch(mci.GetPropertyValue("Name").ToString(), pattern)) {
+					var info = new Dictionary<string, object>();
+					foreach (var prop in mci.Properties) {
+						info.Add(prop.Name, prop.Value);
+					}
+					infoList.Add(name, info);
+					break;
+				}
+			}
 		}
-		return deviceNameList;
+		return infoList;
 	};
 }
