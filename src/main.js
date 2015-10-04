@@ -1,15 +1,31 @@
 'use strict';
 
-var path = require('path');
-var compiler = require('electron-compile');
+import app from 'app';
+import BrowserWindow from 'browser-window';
+import CrashReporter from 'crash-reporter';
+import path from 'path';
 
-compiler.initWithOptions({
-	cacheDir: path.join(__dirname, './cache'),
-	compilerOpts: {
-		js: {stage: 0},
-		jsx: {stage:0}
+export default class MainWindow {
+	constructor() {
+		CrashReporter.start();
+
+		app.on('window-all-closed', () => {
+			if (process.platform != 'darwin')
+			app.quit();
+		});
+
+		app.on('ready', () => {
+			var url = path.join('file://', __dirname, './index.html');
+			this.createWindow(url, {width: 800, height: 600});
+		});
 	}
-});
 
-var main = require(path.join(__dirname, './main.jsx'));
-new main();
+	createWindow(path, options) {
+		this.window = new BrowserWindow(options);
+		this.window.loadUrl(path);
+		this.window.openDevTools();
+		this.window.on('closed', () => {
+			this.window = null;
+		});
+	}
+};

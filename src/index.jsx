@@ -1,17 +1,20 @@
 'use strict';
 
+import prominence from "prominence";
 import $ from 'jquery';
+
 import React from 'react';
+import {Tabs, Tab} from 'react-bootstrap';
+
 import remote from 'remote';
 import path from 'path';
 
 var edge = remote.require('electron-edge2');
 var cs = edge.func(path.join(__dirname, './edge.cs'))(null, true);
-var comPorts;
 
 class Hello extends React.Component {
 	render() {
-		return <div>Hello Electron & React!!!</div>;
+		return <h1>SerialPortMonitor</h1>;
 	}
 };
 
@@ -30,34 +33,37 @@ class Port extends React.Component {
 }
 
 class Ports extends React.Component {
+	render() {
+		var list = Object.keys(this.props).map((name) => {
+			return (<Tab eventKey={name} title={name}><Port Name={name} Info={this.props[name]} /></Tab>);
+		});
+		return (<Tabs position="left">{list}</Tabs>);
+	}
+}
+
+class Body extends React.Component {
 	constructor(props) {
 		super(props);
 		this.state = props;
 	}
 	componentDidMount() {
-		setInterval(() => {
-			cs.GetPortInfo(null, (err, res) => {
-				if (err) {
-					console.log(err);
-					return;
-				}
+		setInterval(async () => {
+			try {
+				var res = await prominence(cs).GetPortInfo(null);
 				console.log(res);
 				this.setState(res);
-			});
+			} catch (e) {
+				console.log(e);
+			}
 		}, 2000);
 	}
 	render() {
-		var list = Object.keys(this.state).map((name) => {
-			return (<Port Name={name} Info={this.state[name]} />);
-		});
-		return (<div>{list}</div>);
+		return (<div><Hello /><Ports {...this.state} /></div>);
 	}
 }
 
-$(function() {
-	React.render(<title>Electron!!</title>, document.head);
-	cs.GetPortInfo(null, (err, res) => {
-		React.render(<div><Hello /><Ports {...res}/></div>, document.body);
-	});
+$(async () => {
+	var res = await prominence(cs).GetPortInfo(null);
+	React.render(<Body {...res}/>, document.body);
 });
 
