@@ -4,6 +4,7 @@ import prominence from "prominence";
 import $ from 'jquery';
 
 import React from 'react';
+import {Jumbotron, PageHeader} from 'react-bootstrap';
 import {Tabs, Tab} from 'react-bootstrap';
 
 import remote from 'remote';
@@ -12,9 +13,14 @@ import path from 'path';
 var edge = remote.require('electron-edge2');
 var cs = edge.func(path.join(__dirname, './edge.cs'))(null, true);
 
-class Hello extends React.Component {
+class Title extends React.Component {
 	render() {
-		return <h1>SerialPortMonitor</h1>;
+		return (
+			<Jumbotron><div className="container">
+				<h1>SerialPortMonitor</h1>
+				<p>Get the information of the serial port</p>
+			</div></Jumbotron>
+		);
 	}
 };
 
@@ -58,7 +64,7 @@ class Body extends React.Component {
 		}, 1000);
 	}
 	render() {
-		return <div><Hello /><Ports {...this.state.ports} /></div>;
+		return <div><Title /><Ports {...this.state.ports} /></div>;
 	}
 }
 
