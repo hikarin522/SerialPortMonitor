@@ -21,7 +21,7 @@ class Hello extends React.Component {
 class Port extends React.Component {
 	render() {
 		var li = Object.keys(this.props.Info).map((name) => {
-			return (<li>{name}: {this.props.Info[name]}</li>);
+			return <li>{name}: {this.props.Info[name]}</li>;
 		});
 		return (
 			<div>
@@ -35,9 +35,13 @@ class Port extends React.Component {
 class Ports extends React.Component {
 	render() {
 		var list = Object.keys(this.props).map((name) => {
-			return (<Tab eventKey={name} title={name}><Port Name={name} Info={this.props[name]} /></Tab>);
+			return (
+				<Tab eventKey={name} title={this.props[name].Name}>
+					<Port Name={name} Info={this.props[name]} />
+				</Tab>
+			);
 		});
-		return (<Tabs position="left">{list}</Tabs>);
+		return <Tabs position="left" animation={false}>{list}</Tabs>;
 	}
 }
 
@@ -48,22 +52,29 @@ class Body extends React.Component {
 	}
 	componentDidMount() {
 		setInterval(async () => {
-			try {
-				var res = await prominence(cs).GetPortInfo(null);
-				console.log(res);
-				this.setState(res);
-			} catch (e) {
-				console.log(e);
-			}
-		}, 2000);
+			var res = await getPortInfo();
+			console.log(res);
+			this.setState({ports:res});
+		}, 1000);
 	}
 	render() {
-		return (<div><Hello /><Ports {...this.state} /></div>);
+		return <div><Hello /><Ports {...this.state.ports} /></div>;
 	}
 }
 
 $(async () => {
-	var res = await prominence(cs).GetPortInfo(null);
-	React.render(<Body {...res}/>, document.body);
+	var res = await getPortInfo();
+	React.render(<Body ports={res} />, document.body);
 });
 
+async function getPortInfo() {
+	var res = await prominence(cs).GetPortInfo(null);
+	var obj = {};
+	for (var i in res) {
+		obj[i] = {};
+		for (var j in res[i]) {
+			obj[i][j] = res[i][j];
+		}
+	}
+	return obj;
+}
