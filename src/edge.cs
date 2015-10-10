@@ -1,18 +1,20 @@
 #r "System.Management.dll"
+#r "System.Web.Extensions.dll"
 using System;
 using System.Threading.Tasks;
 using System.IO.Ports;
 using System.Management;
 using System.Collections.Generic;
 using System.Text.RegularExpressions;
+using System.Web.Script.Serialization;
 
 public class Startup {
 	public async Task<object> Invoke(object input) {
-		return new Helper();
+		return new Edge();
 	}
 }
 
-public class Helper {
+public class Edge {
 	public Func<object, Task<object>> GetPortNames = async (i) => {
 		return SerialPort.GetPortNames();
 	};
@@ -37,7 +39,9 @@ public class Helper {
 				infoList.Add(name, info);
 			}
 		}
-		return infoList;
+
+		var serializer = new JavaScriptSerializer();
+		return serializer.Serialize(infoList);
 	};
 
 	static private Dictionary<string, object> serchPort(ManagementObjectCollection objCol, string pattern) {

@@ -75,12 +75,13 @@ $(async () => {
 
 async function getPortInfo() {
 	var res = await prominence(cs).GetPortInfo(null);
-	var obj = {};
-	for (var i in res) {
-		obj[i] = {};
-		for (var j in res[i]) {
-			obj[i][j] = res[i][j];
-		}
+	var obj = JSON.parse(res);
+
+	if (!Object.keys(obj).length) {
+		obj = {"The serial port could not be detected": {
+			"Name": "Undetectable"
+		}};
 	}
+
 	return obj;
 }
