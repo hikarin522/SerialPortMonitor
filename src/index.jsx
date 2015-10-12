@@ -11,7 +11,7 @@ import remote from 'remote';
 import path from 'path';
 
 var edge = remote.require('electron-edge2');
-var cs = edge.func(path.join(__dirname, './edge.cs'))(null, true);
+var cs = edge.func(path.join(__dirname, './Edge/Edge/bin/Release/Edge.dll'))(null, true);
 
 class Title extends React.Component {
 	render() {
@@ -59,7 +59,6 @@ class Body extends React.Component {
 	componentDidMount() {
 		setInterval(async () => {
 			var res = await getPortInfo();
-			console.log(res);
 			this.setState({ports:res});
 		}, 1000);
 	}
@@ -76,12 +75,10 @@ $(async () => {
 async function getPortInfo() {
 	var res = await prominence(cs).GetPortInfo(null);
 	var obj = JSON.parse(res);
-
 	if (!Object.keys(obj).length) {
 		obj = {"The serial port could not be detected": {
 			"Name": "Undetectable"
 		}};
 	}
-
 	return obj;
 }
