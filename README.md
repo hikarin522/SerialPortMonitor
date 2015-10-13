@@ -16,6 +16,8 @@ $ npm start
 
 ###ライブラリとか
 - [Electron](http://electron.atom.io/)
-- [Edge.js](http://tjanczuk.github.io/edge/)
+- [electron-compile](https://github.com/electronjs/electron-compile)
 - [React](https://facebook.github.io/react/)
 - [React-Bootstrap](https://react-bootstrap.github.io/)
+- [Edge.js](http://tjanczuk.github.io/edge/)
+- [Reactive Extensions](http://rx.codeplex.com/)
