@@ -10,7 +10,7 @@ import {Tabs, Tab} from 'react-bootstrap';
 import remote from 'remote';
 import path from 'path';
 
-var edge = remote.require('electron-edge2');
+var edge = remote.require('electron-edge');
 var cs = edge.func(path.join(__dirname, './Edge/Edge/bin/Release/Edge.dll'))(null, true);
 
 class Title extends React.Component {
