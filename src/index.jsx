@@ -18,40 +18,37 @@ const Edge =  new class {
 		const dllpath = path.join(__dirname, './Edge/Edge/bin/Release/Edge.dll');
 		this.dll = await Rx.Observable.fromNodeCallback(edge.func(dllpath))(null).toPromise();
 	}
-	async getPortInfo() {
-		const info = await Rx.Observable.fromNodeCallback(this.dll.GetPortInfo)(null).toPromise();
-		return JSON.parse(info);
+	getPortInfo() {
+		return Rx.Observable.fromNodeCallback(this.dll.GetPortInfo)(null)
+			.map(x => JSON.parse(x));
 	}
-	async portInfoSource(ms) {
-		const source = await Rx.Observable.fromNodeCallback(this.dll.PortInfoSource)(ms).toPromise();
-		return Rx.Observable.create(async ob => {
-			const dispose = await Rx.Observable.fromNodeCallback(source.subscribe)({
-				onNext: (data, cb) => {
-					ob.onNext(data);
-					cb();
-				},
-				onError: (err, cb) => {
-					ob.onError(err);
-					cb();
-				},
-				onCompleted: (_, cb) => {
-					ob.onCompleted();
-					cb();
-				}
-			}).toPromise();
-			return async () => await Rx.Observable.fromNodeCallback(dispose.dispose)(null).toPromise();
-		}).map(e => JSON.parse(e));
+	portInfoSource(ms) {
+		console.log(ms);
+		return Rx.Observable.fromNodeCallback(this.dll.PortInfoSource)(ms)
+			.selectMany(source => Rx.Observable.create(ob => {
+				const dispose = Rx.Observable.fromNodeCallback(source.subscribe)({
+					onNext: (data, cb) => {
+						ob.onNext(data);
+						cb();
+					},
+					onError: (err, cb) => {
+						ob.onError(err);
+						cb();
+					},
+					onCompleted: (_, cb) => {
+						ob.onCompleted();
+						cb();
+					}
+				}).toPromise();
+				return async () => await Rx.Observable.fromNodeCallback((await dispose).dispose)(null).toPromise();
+			}))
+			.map(x => JSON.parse(x));
 	}
 }();
 
-var serialport;
 async () => {
 	const domReady = Rx.Observable.fromCallback(document.addEventListener)('DOMContentLoaded').toPromise();
 	await Edge.init();
-	serialport = await Edge.getPortInfo();
-	console.log(serialport);
-	source = await Edge.portInfoSource(2000);
-	source.subscribe(x => console.log(x), e => console.log(e), () => console.log('onCompleted'));
 
 	await domReady;
 	Cycle.run(main, {
@@ -60,8 +57,10 @@ async () => {
 }();
 
 function main({DOM}) {
+	console.log('in main');
+	const source = Edge.portInfoSource(2000);
 	let actions = intent(DOM);
-	let state$ = model(actions);
+	let state$ = model(actions, source);
 	return {
 		DOM: view(state$)
 	};
@@ -73,13 +72,17 @@ function intent(DOM) {
 	};
 }
 
-function model(actions) {
+function model(actions, serialport) {
 	var toggle = true;
-	return actions.toggleMenu$.map(e => toggle = !toggle).startWith(toggle);
+	return Rx.Observable.combineLatest(
+		actions.toggleMenu$.map(e => toggle = !toggle).startWith(toggle),
+		serialport,
+		(state, serialport) => ({state, serialport})
+	);
 }
 
 function view(state$) {
-	return state$.map(state =>
+	return state$.map(({state, serialport}) =>
 		div('#wrapper' + (state ? '' : '.toggled'), [
 			div('#sidebar-wrapper', ul('.sidebar-nav', [].concat(
 				li('.sidebar-brand', a({href: '#'}, 'Menu')),

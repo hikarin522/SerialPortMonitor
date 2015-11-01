@@ -34,33 +34,24 @@ namespace Edge {
 		private readonly JavaScriptSerializer serializer;
 
 		private async Task<object> _createSource(object input) {
-			if (!(input is int)) {
+			if (!(input is int) || (int)input <= 0) {
 				return null;
 			}
 			var info = Observable.Interval(TimeSpan.FromMilliseconds((int)input))
-				.Select(_ => _GetPortInfo(null));
+				.SelectMany(_ => _GetPortInfo(null).ToObservable());
 
 			Func<dynamic, Task<object>> Subscribe = async ob => {
 				Func<object, Task<object>> onNext = null, onError = null, onCompleted = null;
 				onNext = ob as Func<object, Task<object>>;
 				if (onNext == null) {
-					try {
-						onNext = ob.onNext as Func<object, Task<object>>;
-					}
-					catch { }
-					try {
-						onError = ob.onError as Func<object, Task<object>>;
-					}
-					catch { }
-					try {
-						onCompleted = ob.onCompleted as Func<object, Task<object>>;
-					}
-					catch { }
+					try { onNext = ob.onNext as Func<object, Task<object>>;	} catch { }
+					try { onError = ob.onError as Func<object, Task<object>>; } catch { }
+					try { onCompleted = ob.onCompleted as Func<object, Task<object>>; } catch { }
 				}
 				if (onNext == null) {
 					return null;
 				}
-				var dispose = info.Subscribe(async x => onNext(await x), e => { if (onError != null) onError(e); }, () => { if (onCompleted != null) onCompleted(null); });
+				var dispose = info.Subscribe(x => onNext(x), e => { if (onError != null) onError(e); }, () => { if (onCompleted != null) onCompleted(null); });
 				Func<object, Task<object>> Dispose = async _ => { dispose.Dispose(); return null; };
 				return new { dispose = Dispose };
 			};
