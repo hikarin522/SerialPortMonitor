@@ -22,6 +22,26 @@ const Edge =  new class {
 		const info = await Rx.Observable.fromNodeCallback(this.dll.GetPortInfo)(null).toPromise();
 		return JSON.parse(info);
 	}
+	async portInfoSource(ms) {
+		const source = await Rx.Observable.fromNodeCallback(this.dll.PortInfoSource)(ms).toPromise();
+		return Rx.Observable.create(async ob => {
+			const dispose = await Rx.Observable.fromNodeCallback(source.subscribe)({
+				onNext: (data, cb) => {
+					ob.onNext(data);
+					cb();
+				},
+				onError: (err, cb) => {
+					ob.onError(err);
+					cb();
+				},
+				onCompleted: (_, cb) => {
+					ob.onCompleted();
+					cb();
+				}
+			}).toPromise();
+			return async () => await Rx.Observable.fromNodeCallback(dispose.dispose)(null).toPromise();
+		}).map(e => JSON.parse(e));
+	}
 }();
 
 var serialport;
@@ -30,6 +50,8 @@ async () => {
 	await Edge.init();
 	serialport = await Edge.getPortInfo();
 	console.log(serialport);
+	source = await Edge.portInfoSource(2000);
+	source.subscribe(x => console.log(x), e => console.log(e), () => console.log('onCompleted'));
 
 	await domReady;
 	Cycle.run(main, {
@@ -51,7 +73,6 @@ function intent(DOM) {
 	};
 }
 
-
 function model(actions) {
 	var toggle = true;
 	return actions.toggleMenu$.map(e => toggle = !toggle).startWith(toggle);
@@ -65,7 +86,7 @@ function view(state$) {
 				Object.keys(serialport).map(name => li(a({href: `#${name}`}, name)))
 			))),
 			div('#page-content-wrapper', div('.container-fluid', div('.row', div('.col-lg-12', [].concat(
-				a('.btn.btn-default#menu-toggle', {href: '#menu-toggle'}, 'Toggle Menu'),
+				a('.btn.btn-default#menu-toggle', {href: '#'}, 'Toggle Menu'),
 				Object.keys(serialport).map(name => div([].concat(
 					h1(`#${name}`, name),
 					Object.keys(serialport[name]).map(mc => div([].concat(
