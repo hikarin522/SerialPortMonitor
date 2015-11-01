@@ -1,84 +1,81 @@
 'use strict';
+/** @jsx hJSX */
 
-import prominence from "prominence";
-import $ from 'jquery';
+var jQuery = require('jquery');
+require('./node_modules/bootstrap/dist/js/bootstrap.min.js');
 
-import React from 'react';
-import {Jumbotron, PageHeader} from 'react-bootstrap';
-import {Tabs, Tab} from 'react-bootstrap';
+import Rx from 'rx';
+import Cycle from '@cycle/core';
+import {makeDOMDriver, h, hJSX} from '@cycle/dom';
+const {div, span, nav, h1, h2, h3, h4, h5, h6, p, ul, li, a, button, code} = require('hyperscript-helpers')(h);
 
 import remote from 'remote';
 import path from 'path';
+const edge = remote.require('electron-edge');
 
-var edge = remote.require('electron-edge');
-var cs = edge.func(path.join(__dirname, './Edge/Edge/bin/Release/Edge.dll'))(null, true);
-
-class Title extends React.Component {
-	render() {
-		return (
-			<Jumbotron><div className="container">
-				<h1>SerialPortMonitor</h1>
-				<p>Get the information of the serial port</p>
-			</div></Jumbotron>
-		);
+const Edge =  new class {
+	async init() {
+		const dllpath = path.join(__dirname, './Edge/Edge/bin/Release/Edge.dll');
+		this.dll = await Rx.Observable.fromNodeCallback(edge.func(dllpath))(null).toPromise();
 	}
-};
-
-class Port extends React.Component {
-	render() {
-		var li = Object.keys(this.props.Info).map((name) => {
-			return <li>{name}: {this.props.Info[name]}</li>;
-		});
-		return (
-			<div>
-				<h3>{this.props.Name}</h3>
-				<ul>{li}</ul>
-			</div>
-		);
+	async getPortInfo() {
+		const info = await Rx.Observable.fromNodeCallback(this.dll.GetPortInfo)(null).toPromise();
+		return JSON.parse(info);
 	}
+}();
+
+var serialport;
+async () => {
+	const domReady = Rx.Observable.fromCallback(document.addEventListener)('DOMContentLoaded').toPromise();
+	await Edge.init();
+	serialport = await Edge.getPortInfo();
+	console.log(serialport);
+
+	await domReady;
+	Cycle.run(main, {
+		DOM: makeDOMDriver('body')
+	});
+}();
+
+function main({DOM}) {
+	let actions = intent(DOM);
+	let state$ = model(actions);
+	return {
+		DOM: view(state$)
+	};
 }
 
-class Ports extends React.Component {
-	render() {
-		var list = Object.keys(this.props).map((name) => {
-			return (
-				<Tab eventKey={name} title={this.props[name].Name}>
-					<Port Name={name} Info={this.props[name]} />
-				</Tab>
-			);
-		});
-		return <Tabs position="left" animation={false}>{list}</Tabs>;
-	}
+function intent(DOM) {
+	return {
+		toggleMenu$: DOM.select('#menu-toggle').events('click').map(e => true)
+	};
 }
 
-class Body extends React.Component {
-	constructor(props) {
-		super(props);
-		this.state = props;
-	}
-	componentDidMount() {
-		setInterval(async () => {
-			var res = await getPortInfo();
-			this.setState({ports:res});
-		}, 1000);
-	}
-	render() {
-		return <div><Title /><Ports {...this.state.ports} /></div>;
-	}
+
+function model(actions) {
+	var toggle = true;
+	return actions.toggleMenu$.map(e => toggle = !toggle).startWith(toggle);
 }
 
-$(async () => {
-	var res = await getPortInfo();
-	React.render(<Body ports={res} />, document.body);
-});
-
-async function getPortInfo() {
-	var res = await prominence(cs).GetPortInfo(null);
-	var obj = JSON.parse(res);
-	if (!Object.keys(obj).length) {
-		obj = {"The serial port could not be detected": {
-			"Name": "Undetectable"
-		}};
-	}
-	return obj;
+function view(state$) {
+	return state$.map(state =>
+		div('#wrapper' + (state ? '' : '.toggled'), [
+			div('#sidebar-wrapper', ul('.sidebar-nav', [].concat(
+				li('.sidebar-brand', a({href: '#'}, 'Menu')),
+				Object.keys(serialport).map(name => li(a({href: `#${name}`}, name)))
+			))),
+			div('#page-content-wrapper', div('.container-fluid', div('.row', div('.col-lg-12', [].concat(
+				a('.btn.btn-default#menu-toggle', {href: '#menu-toggle'}, 'Toggle Menu'),
+				Object.keys(serialport).map(name => div([].concat(
+					h1(`#${name}`, name),
+					Object.keys(serialport[name]).map(mc => div([].concat(
+						h3(`${serialport[name][mc]['Name']} (${mc})`),
+						ul(Object.keys(serialport[name][mc]).map(prop =>
+							li(`${prop}: ${serialport[name][mc][prop]}`)
+						))
+					)))
+				)))
+			)))))
+		])
+	);
 }
