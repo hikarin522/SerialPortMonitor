@@ -23,7 +23,6 @@ const Edge =  new class {
 			.map(x => JSON.parse(x));
 	}
 	portInfoSource(ms) {
-		console.log(ms);
 		return Rx.Observable.fromNodeCallback(this.dll.PortInfoSource)(ms)
 			.selectMany(source => Rx.Observable.create(ob => {
 				const dispose = Rx.Observable.fromNodeCallback(source.subscribe)({
@@ -49,7 +48,6 @@ const Edge =  new class {
 async () => {
 	const domReady = Rx.Observable.fromCallback(document.addEventListener)('DOMContentLoaded').toPromise();
 	await Edge.init();
-
 	await domReady;
 	Cycle.run(main, {
 		DOM: makeDOMDriver('body')
@@ -57,7 +55,6 @@ async () => {
 }();
 
 function main({DOM}) {
-	console.log('in main');
 	const source = Edge.portInfoSource(2000);
 	let actions = intent(DOM);
 	let state$ = model(actions, source);

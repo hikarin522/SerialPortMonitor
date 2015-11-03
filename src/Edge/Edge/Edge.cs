@@ -5,7 +5,6 @@ using System.Linq;
 using System.Management;
 using System.Reactive;
 using System.Reactive.Linq;
-using System.Reactive.Subjects;
 using System.Reactive.Threading.Tasks;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
@@ -20,90 +19,174 @@ namespace Edge {
 
 	public class Edge {
 		public Edge() {
-			mcWin32_SerialPort = CreateMC("Win32_SerialPort");
-			mcWin32_PnPEntity = CreateMC("Win32_PnPEntity");
+			mcWin32_SerialPort = new ManagementClass("Win32_SerialPort");
+			mcWin32_PnPEntity = new ManagementClass("Win32_PnPEntity");
 			serializer = new JavaScriptSerializer();
 			GetPortInfo = _GetPortInfo;
-			PortInfoSource = _createSource;
+			PortInfoSource = _portInfoSource;
+			OpenSerialPort = null;
 		}
 
 		public readonly Func<object, Task<object>> GetPortInfo;
 		public readonly Func<object, Task<object>> PortInfoSource;
-		private readonly Tuple<string, ManagementClass> mcWin32_SerialPort;
-		private readonly Tuple<string, ManagementClass> mcWin32_PnPEntity;
+		public readonly Func<object, Task<object>> OpenSerialPort;
+		private readonly ManagementClass mcWin32_SerialPort;
+		private readonly ManagementClass mcWin32_PnPEntity;
 		private readonly JavaScriptSerializer serializer;
 
-		private async Task<object> _createSource(object input) {
-			if (!(input is int) || (int)input <= 0) {
+		private async Task<object> _openSerialPort(dynamic input) {
+			var portName = input as string;
+			int baudRate = 9600, dataBits = 8;
+			Parity parity = Parity.None;
+			StopBits stopBits = StopBits.One;
+
+			if (portName == null) {
+				try { portName = input.portName as string; } catch { }
+				try { baudRate = (input.baudRate is int) ? (int)input.baudRate : 9600; } catch { }
+				try {
+					switch (input.parity as string) {
+					case "Even":
+						parity = Parity.Even;
+						break;
+					case "Odd":
+						parity = Parity.Odd;
+						break;
+					case "Mark":
+						parity = Parity.Mark;
+						break;
+					case "Space":
+						parity = Parity.Space;
+						break;
+					default:
+						parity = Parity.None;
+						break;
+					}
+				}
+				catch { }
+				try { dataBits = input.dataBits is int ? (int)input.dataBits : 8; } catch { }
+				try {
+					switch (input.stopBits as string) {
+					case "None":
+						stopBits = StopBits.None;
+						break;
+					case "OnePointFive":
+						stopBits = StopBits.OnePointFive;
+						break;
+					case "Two":
+						stopBits = StopBits.Two;
+						break;
+					default:
+						stopBits = StopBits.One;
+						break;
+					}
+				}
+				catch { }
+			}
+			if (portName == null) {
 				return null;
 			}
-			var info = Observable.Interval(TimeSpan.FromMilliseconds((int)input))
-				.SelectMany(_ => _GetPortInfo(null).ToObservable());
+			try {
+				var serialPort = new SerialPort(portName, baudRate, parity, dataBits, stopBits);
+				serialPort.Open();
 
-			Func<dynamic, Task<object>> Subscribe = async ob => {
-				Func<object, Task<object>> onNext = null, onError = null, onCompleted = null;
-				onNext = ob as Func<object, Task<object>>;
-				if (onNext == null) {
-					try { onNext = ob.onNext as Func<object, Task<object>>;	} catch { }
-					try { onError = ob.onError as Func<object, Task<object>>; } catch { }
-					try { onCompleted = ob.onCompleted as Func<object, Task<object>>; } catch { }
-				}
-				if (onNext == null) {
-					return null;
-				}
-				var dispose = info.Subscribe(x => onNext(x), e => { if (onError != null) onError(e); }, () => { if (onCompleted != null) onCompleted(null); });
-				Func<object, Task<object>> Dispose = async _ => { dispose.Dispose(); return null; };
-				return new { dispose = Dispose };
-			};
 
-			return new { subscribe = Subscribe };
+			}
+			catch { }
+
+			return null;
 		}
 
-		private Tuple<string, ManagementClass> CreateMC(string mc) {
-			return Tuple.Create(mc, new ManagementClass(mc));
+		private async Task<object> _GetPortInfo(object _) {
+			return await _createSource(0).Select(i => serializer.Serialize(i)).FirstAsync();
 		}
 
-		private async Task<object> _GetPortInfo(object input) {
-			return await Factory(mcWin32_SerialPort).Merge(Factory(mcWin32_PnPEntity))
-				.Where(e => e.Item2 != null).Where(e => e.Item2["Name"] != null)
-				.Join(
-					SerialPort.GetPortNames().ToObservable().Select(i => Tuple.Create(i, new Regex(i + @"[\p{P}\p{Z}$]"), new Dictionary<string, Dictionary<string, object>>())),
-					_ => Observable.Never<Unit>(),
-					_ => Observable.Never<Unit>(),
-					(l, r) => Tuple.Create(l, r)
-				)
-				.Where(obj => obj.Item2.Item2.IsMatch(obj.Item1.Item2["Name"].ToString()))
-				.Select(obj => {
-					var list = new Dictionary<string, object>();
-					foreach (var prop in obj.Item1.Item2.Properties) {
-						list.Add(prop.Name, prop.Value);
+		private async Task<object> _portInfoSource(object input) {
+			if (!(input is int) || (int)input <= 0)
+				return null;
+
+			var info = _createSource((int)input)
+				.Select(i => serializer.Serialize(i))
+				.Publish().RefCount();
+
+			return new {
+				subscribe = (Func<dynamic, Task<object>>)(async ob => {
+					Func<object, Task<object>> onNext, onError = null, onCompleted = null;
+					onNext = ob as Func<object, Task<object>>;
+					if (onNext == null) {
+						try { onNext = ob.onNext as Func<object, Task<object>>; } catch { }
+						try { onError = ob.onError as Func<object, Task<object>>; } catch { }
+						try { onCompleted = ob.onCompleted as Func<object, Task<object>>; } catch { }
 					}
-					obj.Item2.Item3.Add(obj.Item1.Item1, list);
-					return Tuple.Create(obj.Item2.Item1, obj.Item2.Item3);
+					if (onNext == null)
+						return null;
+
+					var dispose = info.Subscribe(
+						i => onNext(i),
+						e => { if (onError != null) onError(e); },
+						() => { if (onCompleted != null) onCompleted(null); }
+					);
+
+					return new {
+						dispose = (Func<object, Task<object>>)(async _ => {
+							dispose.Dispose();
+							return null;
+						})
+					};
+
 				})
-				.Distinct(i => i.Item1)
-				.ToDictionary(i => i.Item1, i => i.Item2)
-				.Select(i => serializer.Serialize(i));
+			};
 		}
 
-		private IObservable<Tuple<string, ManagementBaseObject>> Factory(Tuple<string, ManagementClass> mc) {
-			var src = new ReplaySubject<Tuple<string, ManagementBaseObject>>();
-			var ob = new ManagementOperationObserver();
+		private IObservable<object> _createSource(int ms) {
+			return Observable.Interval(TimeSpan.FromMilliseconds(ms)).StartWith(0)
+				.Select(_ => SerialPort.GetPortNames())
+				.Scan(Tuple.Create(new string[0], new string[0]), (Old, New) => Tuple.Create(Old.Item2, New))
+				.Select(i => Tuple.Create(i.Item1.Except(i.Item2), i.Item2.Except(i.Item1)))
+				.Where(i => i.Item1.Count() > 0 || i.Item2.Count() > 0)
+				.SelectMany(async i => Tuple.Create(i.Item1, await i.Item2.ToObservable()
+					.Select(j => Tuple.Create(j, new Regex(j + @"[\p{P}\p{Z}$]")))
+					.Join(
+						Factory(mcWin32_SerialPort).Merge(Factory(mcWin32_PnPEntity))
+							.Select(j => Tuple.Create(j["Name"], j))
+							.Where(j => j.Item1 != null),
+						_ => Observable.Never<Unit>(),
+						_ => Observable.Never<Unit>(),
+						Tuple.Create
+					)
+					.Where(j => j.Item1.Item2.IsMatch(j.Item2.Item1.ToString()))
+					.Select(j => {
+						var list = new Dictionary<string, object>();
+						foreach (var prop in j.Item2.Item2.Properties)
+							list.Add(prop.Name, prop.Value);
+						return Tuple.Create(j.Item1.Item1, j.Item2.Item2.ClassPath.ClassName, list);
+					})
+					.GroupBy(j => j.Item1)
+					.SelectMany(async j => Tuple.Create(j.Key, await j.ToDictionary(k => k.Item2, k => k.Item3)))
+					.ToArray()
+				))
+				.Select(i => i)
+				.Scan(new Dictionary<string, object>(), (sum, New) => {
+					foreach (var i in New.Item1)
+						sum.Remove(i);
+					foreach (var i in New.Item2)
+						sum.Add(i.Item1, i.Item2);
+					return sum;
+				});
+		}
 
-			Observable.FromEventPattern<ObjectReadyEventHandler, ObjectReadyEventArgs>(
-				h => h.Invoke,
-				h => ob.ObjectReady += h,
-				h => ob.ObjectReady -= h
-			).Subscribe(obj => src.OnNext(Tuple.Create(mc.Item1, obj.EventArgs.NewObject)));
-
-			Observable.FromEventPattern<CompletedEventHandler, CompletedEventArgs>(
-				h => h.Invoke,
-				h => ob.Completed += h,
-				h => ob.Completed -= h
-			).Subscribe(_ => src.OnCompleted());
-
-			mc.Item2.GetInstances(ob);
-			return src.AsObservable();
+		private IObservable<ManagementBaseObject> Factory(ManagementClass mc) {
+			return Observable.Return(new ManagementOperationObserver())
+				.SelectMany(
+					ob => Observable.FromEventPattern<ObjectReadyEventHandler, ObjectReadyEventArgs>(
+						h => { ob.ObjectReady += h; mc.GetInstances(ob); },
+						h => ob.ObjectReady -= h
+					)
+					.TakeUntil(Observable.FromEventPattern<CompletedEventHandler, CompletedEventArgs>(
+						h => ob.Completed += h,
+						h => ob.Completed -= h
+					))
+				)
+				.Select(e => e.EventArgs.NewObject);
 		}
 	}
 }
