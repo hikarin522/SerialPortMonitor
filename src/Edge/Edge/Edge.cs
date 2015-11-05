@@ -9,6 +9,9 @@ using System.Reactive.Threading.Tasks;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using System.Web.Script.Serialization;
+using System.Reactive.Disposables;
+using System.Reactive.Subjects;
+using System.Text;
 
 namespace Edge {
 	public class Startup {
@@ -17,22 +20,28 @@ namespace Edge {
 		}
 	}
 
-	public class Edge {
+	public class Edge : IDisposable {
+		private readonly ObservableManagementClass mcWin32_SerialPort;
+		private readonly ObservableManagementClass mcWin32_PnPEntity;
+		private readonly JavaScriptSerializer serializer;
+
+		public readonly Func<object, Task<object>> GetPortInfo;
+		public readonly Func<object, Task<object>> PortInfoSource;
+		public readonly Func<object, Task<object>> OpenSerialPort;
+
 		public Edge() {
-			mcWin32_SerialPort = new ManagementClass("Win32_SerialPort");
-			mcWin32_PnPEntity = new ManagementClass("Win32_PnPEntity");
+			mcWin32_SerialPort = new ObservableManagementClass("Win32_SerialPort");
+			mcWin32_PnPEntity = new ObservableManagementClass("Win32_PnPEntity");
 			serializer = new JavaScriptSerializer();
 			GetPortInfo = _GetPortInfo;
 			PortInfoSource = _portInfoSource;
 			OpenSerialPort = null;
 		}
 
-		public readonly Func<object, Task<object>> GetPortInfo;
-		public readonly Func<object, Task<object>> PortInfoSource;
-		public readonly Func<object, Task<object>> OpenSerialPort;
-		private readonly ManagementClass mcWin32_SerialPort;
-		private readonly ManagementClass mcWin32_PnPEntity;
-		private readonly JavaScriptSerializer serializer;
+		public void Dispose() {
+			mcWin32_PnPEntity.Dispose();
+			mcWin32_SerialPort.Dispose();
+		}
 
 		private async Task<object> _openSerialPort(dynamic input) {
 			var portName = input as string;
@@ -88,8 +97,28 @@ namespace Edge {
 			try {
 				var serialPort = new SerialPort(portName, baudRate, parity, dataBits, stopBits);
 				serialPort.Open();
+				var ob0 = Observable.Using(
+					() => new SerialPort(portName, baudRate, parity, dataBits, stopBits),
+					_ => Observable.Return(_)
+				)
+				.Select(i => i);
 
-
+				var ob = Observable.FromEventPattern<SerialDataReceivedEventHandler, SerialDataReceivedEventArgs>(
+					h => serialPort.DataReceived += h,
+					h => serialPort.DataReceived -= h
+				)
+				.TakeWhile(e => e.EventArgs.EventType != SerialData.Eof)
+				.Select(e => e.Sender).Cast<SerialPort>()
+				.Select(e => {
+					var buf = new byte[e.BytesToRead];
+					e.Read(buf, 0, buf.Length);
+					return Encoding.ASCII.GetString(buf);
+				})
+				.Scan(new string[0], (Sum, New) => string.Concat(Sum.Last(), New).Split('\n'))
+				.SelectMany(i => i.Take(i.Length - 1))
+				.Buffer(TimeSpan.FromMilliseconds(100))
+				.Select(i => i)
+				.Finally(serialPort.Close);
 			}
 			catch { }
 
@@ -132,40 +161,39 @@ namespace Edge {
 							return null;
 						})
 					};
-
 				})
 			};
 		}
 
-		private IObservable<object> _createSource(int ms) {
+		private IObservable<IDictionary<string, IDictionary<string, Dictionary<string,string>>>> _createSource(int ms) {
 			return Observable.Interval(TimeSpan.FromMilliseconds(ms)).StartWith(0)
 				.Select(_ => SerialPort.GetPortNames())
 				.Scan(Tuple.Create(new string[0], new string[0]), (Old, New) => Tuple.Create(Old.Item2, New))
 				.Select(i => Tuple.Create(i.Item1.Except(i.Item2), i.Item2.Except(i.Item1)))
 				.Where(i => i.Item1.Count() > 0 || i.Item2.Count() > 0)
-				.SelectMany(async i => Tuple.Create(i.Item1, await i.Item2.ToObservable()
+				.Select(async i => Tuple.Create(i.Item1, await i.Item2.ToObservable()
 					.Select(j => Tuple.Create(j, new Regex(j + @"[\p{P}\p{Z}$]")))
 					.Join(
-						Factory(mcWin32_SerialPort).Merge(Factory(mcWin32_PnPEntity))
-							.Select(j => Tuple.Create(j["Name"], j))
-							.Where(j => j.Item1 != null),
+						mcWin32_SerialPort.Merge(mcWin32_PnPEntity)
+							.Select(j => Tuple.Create(j.ClassPath.ClassName, j["Name"] as string, j.Properties))
+							.Where(j => j.Item2 != null),
 						_ => Observable.Never<Unit>(),
 						_ => Observable.Never<Unit>(),
 						Tuple.Create
 					)
-					.Where(j => j.Item1.Item2.IsMatch(j.Item2.Item1.ToString()))
+					.Where(j => j.Item1.Item2.IsMatch(j.Item2.Item2))
 					.Select(j => {
-						var list = new Dictionary<string, object>();
-						foreach (var prop in j.Item2.Item2.Properties)
-							list.Add(prop.Name, prop.Value);
-						return Tuple.Create(j.Item1.Item1, j.Item2.Item2.ClassPath.ClassName, list);
+						var list = new Dictionary<string, string>();
+						foreach (var prop in j.Item2.Item3)
+							list.Add(prop.Name, prop.Value as string);
+						return Tuple.Create(j.Item1.Item1, j.Item2.Item1, list);
 					})
 					.GroupBy(j => j.Item1)
 					.SelectMany(async j => Tuple.Create(j.Key, await j.ToDictionary(k => k.Item2, k => k.Item3)))
 					.ToArray()
 				))
-				.Select(i => i)
-				.Scan(new Dictionary<string, object>(), (sum, New) => {
+				.Concat()
+				.Scan(new Dictionary<string, IDictionary<string, Dictionary<string, string>>>(), (sum, New) => {
 					foreach (var i in New.Item1)
 						sum.Remove(i);
 					foreach (var i in New.Item2)
@@ -173,20 +201,44 @@ namespace Edge {
 					return sum;
 				});
 		}
+	}
 
-		private IObservable<ManagementBaseObject> Factory(ManagementClass mc) {
-			return Observable.Return(new ManagementOperationObserver())
-				.SelectMany(
-					ob => Observable.FromEventPattern<ObjectReadyEventHandler, ObjectReadyEventArgs>(
-						h => { ob.ObjectReady += h; mc.GetInstances(ob); },
-						h => ob.ObjectReady -= h
-					)
-					.TakeUntil(Observable.FromEventPattern<CompletedEventHandler, CompletedEventArgs>(
-						h => ob.Completed += h,
-						h => ob.Completed -= h
-					))
-				)
-				.Select(e => e.EventArgs.NewObject);
+	class ObservableManagementClass : IObservable<ManagementBaseObject>, IDisposable {
+		private readonly ManagementClass _mc;
+		private readonly ManagementOperationObserver _observer;
+		private readonly IObservable<ManagementBaseObject> _observable;
+		private ReplaySubject<ManagementBaseObject> _subject = null;
+		private bool _isSubscribe = false;
+		public string ClassName { get { return _mc.ClassPath.ClassName; } }
+
+		public ObservableManagementClass(string className) {
+			_mc = new ManagementClass(className);
+			_observer = new ManagementOperationObserver();
+			_observable = Observable.FromEventPattern<ObjectReadyEventHandler, ObjectReadyEventArgs>(
+					h => _observer.ObjectReady += h, h => _observer.ObjectReady -= h
+				).TakeUntil(Observable.FromEventPattern<CompletedEventHandler, CompletedEventArgs>(
+					h => _observer.Completed += h, h => _observer.Completed -= h
+				)).Select(e => e.EventArgs.NewObject)
+				.Finally(() => _isSubscribe = false);
+		}
+
+		public void Dispose() {
+			_observer.Cancel();
+			_mc.Dispose();
+		}
+
+		public IDisposable Subscribe(IObserver<ManagementBaseObject> observer) {
+			if (!_isSubscribe) {
+				_isSubscribe = true;
+				_subject = new ReplaySubject<ManagementBaseObject>();
+				_observable.Subscribe(
+					i => _subject.OnNext(i),
+					e => _subject.OnError(e),
+					() => _subject.OnCompleted()
+				);
+				_mc.GetInstances(_observer);
+			}
+			return _subject.Subscribe(observer);
 		}
 	}
 }

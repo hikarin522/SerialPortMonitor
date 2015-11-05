@@ -41,7 +41,8 @@ const Edge =  new class {
 				}).toPromise();
 				return async () => await Rx.Observable.fromNodeCallback((await dispose).dispose)(null).toPromise();
 			}))
-			.map(x => JSON.parse(x));
+			.map(x => JSON.parse(x))
+			.do(x => console.log(x));
 	}
 }();
 
@@ -49,13 +50,14 @@ async () => {
 	const domReady = Rx.Observable.fromCallback(document.addEventListener)('DOMContentLoaded').toPromise();
 	await Edge.init();
 	await domReady;
+
 	Cycle.run(main, {
 		DOM: makeDOMDriver('body')
 	});
 }();
 
 function main({DOM}) {
-	const source = Edge.portInfoSource(2000);
+	const source = Edge.portInfoSource(500);
 	let actions = intent(DOM);
 	let state$ = model(actions, source);
 	return {
