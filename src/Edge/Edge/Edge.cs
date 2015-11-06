@@ -44,10 +44,10 @@ namespace Edge {
 		}
 
 		private async Task<object> _openSerialPort(dynamic input) {
-			string portName = input as string;
+			var portName = input as string;
 			int baudRate = 9600, dataBits = 8;
-			Parity parity = Parity.None;
-			StopBits stopBits = StopBits.One;
+			var parity = Parity.None;
+			var stopBits = StopBits.One;
 
 			if (portName == null) {
 				try { portName = input.portName as string; } catch { }
