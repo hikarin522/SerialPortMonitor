@@ -44,6 +44,28 @@ const Edge =  new class {
 			.map(x => JSON.parse(x))
 			.do(x => console.log(x));
 	}
+	openSerialPort(name) {
+		return Rx.Observable.fromNodeCallback(this.dll.OpenSerialPort)(name)
+			.selectMany(source => Rx.Observable.create(ob => {
+				const dispose = Rx.Observable.fromNodeCallback(source.subscribe)({
+					onNext: (data, cb) => {
+						ob.onNext(data);
+						cb();
+					},
+					onError: (err, cb) => {
+						ob.onError(err);
+						cb();
+					},
+					onCompleted: (_, cb) => {
+						ob.onCompleted();
+						cb();
+					}
+				}).toPromise();
+				return async () => await Rx.Observable.fromNodeCallback((await dispose).dispose)(null).toPromise();
+			}));
+			//.map(x => JSON.parse(x));
+			//.do(x => console.log(x));
+	}
 }();
 
 async () => {
@@ -54,6 +76,8 @@ async () => {
 	Cycle.run(main, {
 		DOM: makeDOMDriver('body')
 	});
+
+	Edge.openSerialPort('COM7').subscribe(x => console.log(x));
 }();
 
 function main({DOM}) {

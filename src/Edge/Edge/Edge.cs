@@ -26,8 +26,8 @@ namespace Edge {
 		private readonly JavaScriptSerializer serializer;
 
 		public readonly Func<object, Task<object>> GetPortInfo;
-		public readonly Func<object, Task<object>> PortInfoSource;
-		public readonly Func<object, Task<object>> OpenSerialPort;
+		public readonly Func<dynamic, Task<object>> PortInfoSource;
+		public readonly Func<dynamic, Task<object>> OpenSerialPort;
 
 		public Edge() {
 			mcWin32_SerialPort = new ObservableManagementClass("Win32_SerialPort");
@@ -35,7 +35,7 @@ namespace Edge {
 			serializer = new JavaScriptSerializer();
 			GetPortInfo = _GetPortInfo;
 			PortInfoSource = _portInfoSource;
-			OpenSerialPort = null;
+			OpenSerialPort = _openSerialPort;
 		}
 
 		public void Dispose() {
@@ -44,7 +44,7 @@ namespace Edge {
 		}
 
 		private async Task<object> _openSerialPort(dynamic input) {
-			var portName = input as string;
+			string portName = input as string;
 			int baudRate = 9600, dataBits = 8;
 			Parity parity = Parity.None;
 			StopBits stopBits = StopBits.One;
@@ -52,75 +52,53 @@ namespace Edge {
 			if (portName == null) {
 				try { portName = input.portName as string; } catch { }
 				try { baudRate = (input.baudRate is int) ? (int)input.baudRate : 9600; } catch { }
-				try {
-					switch (input.parity as string) {
-					case "Even":
-						parity = Parity.Even;
-						break;
-					case "Odd":
-						parity = Parity.Odd;
-						break;
-					case "Mark":
-						parity = Parity.Mark;
-						break;
-					case "Space":
-						parity = Parity.Space;
-						break;
-					default:
-						parity = Parity.None;
-						break;
-					}
-				}
-				catch { }
+				try { switch (input.parity as string) {
+					case "Even": parity = Parity.Even; break;
+					case "Odd":	parity = Parity.Odd; break;
+					case "Mark": parity = Parity.Mark; break;
+					case "Space": parity = Parity.Space; break;
+					default: parity = Parity.None; break;
+				}} catch { }
 				try { dataBits = input.dataBits is int ? (int)input.dataBits : 8; } catch { }
-				try {
-					switch (input.stopBits as string) {
-					case "None":
-						stopBits = StopBits.None;
-						break;
-					case "OnePointFive":
-						stopBits = StopBits.OnePointFive;
-						break;
-					case "Two":
-						stopBits = StopBits.Two;
-						break;
-					default:
-						stopBits = StopBits.One;
-						break;
-					}
-				}
-				catch { }
+				try { switch (input.stopBits as string) {
+					case "None": stopBits = StopBits.None; break;
+					case "OnePointFive": stopBits = StopBits.OnePointFive; break;
+					case "Two": stopBits = StopBits.Two; break;
+					default: stopBits = StopBits.One; break;
+				}} catch { }
 			}
-			if (portName == null) {
-				return null;
-			}
-			try {
-				var serialPort = new SerialPort(portName, baudRate, parity, dataBits, stopBits);
-				serialPort.Open();
-				var ob0 = Observable.Using(
-					() => new SerialPort(portName, baudRate, parity, dataBits, stopBits),
-					_ => Observable.Return(_)
-				)
-				.Select(i => i);
 
-				var ob = Observable.FromEventPattern<SerialDataReceivedEventHandler, SerialDataReceivedEventArgs>(
-					h => serialPort.DataReceived += h,
-					h => serialPort.DataReceived -= h
-				)
-				.TakeWhile(e => e.EventArgs.EventType != SerialData.Eof)
-				.Select(e => e.Sender).Cast<SerialPort>()
-				.Select(e => {
-					var buf = new byte[e.BytesToRead];
-					e.Read(buf, 0, buf.Length);
-					return Encoding.ASCII.GetString(buf);
-				})
-				.Scan(new string[0], (Sum, New) => string.Concat(Sum.Last(), New).Split('\n'))
-				.SelectMany(i => i.Take(i.Length - 1))
-				.Buffer(TimeSpan.FromMilliseconds(100))
-				.Select(i => i)
-				.Finally(serialPort.Close);
-			}
-			catch { }
+			if (portName == null)
+				return null;
+
+			try {
+                var serialPort = new ObservableSerialPort(new SerialPort(portName, baudRate, parity, dataBits, stopBits));
+				var source = serialPort.Publish().RefCount();
+				return new {
+					subscribe = (Func<dynamic, Task<object>>)(async ob => {
+						Func<object, Task<object>> onNext, onError = null, onCompleted = null;
+						onNext = ob as Func<object, Task<object>>;
+						try { onNext = ob.onNext as Func<object, Task<object>>; } catch { }
+						try { onError = ob.onError as Func<object, Task<object>>; } catch { }
+						try { onCompleted = ob.onCompleted as Func<object, Task<object>>; } catch { }
+						if (ob == null)
+							return null;
+
+						var dispose = source.Subscribe(
+							i => onNext(i),
+							e => { if (onError != null) onError(e); },
+							() => { if (onCompleted != null) onCompleted(null); }
+						);
+
+						return new {
+							dispose = (Func<object, Task<object>>)(async _ => {
+								dispose.Dispose();
+								return null;
+							})
+						};
+					})
+				};
+			} catch { }
 
 			return null;
 		}
@@ -165,7 +143,7 @@ namespace Edge {
 			};
 		}
 
-		private IObservable<IDictionary<string, IDictionary<string, Dictionary<string,string>>>> _createSource(int ms) {
+		private IObservable<IDictionary<string, IDictionary<string, Dictionary<string, string>>>> _createSource(int ms) {
 			return Observable.Interval(TimeSpan.FromMilliseconds(ms)).StartWith(0)
 				.Select(_ => SerialPort.GetPortNames())
 				.Scan(Tuple.Create(new string[0], new string[0]), (Old, New) => Tuple.Create(Old.Item2, New))
@@ -239,6 +217,46 @@ namespace Edge {
 				_mc.GetInstances(_observer);
 			}
 			return _subject.Subscribe(observer);
+		}
+	}
+
+	class ObservableSerialPort : IObservable<string>, IDisposable {
+		private readonly SerialPort _serialPort;
+
+		public ObservableSerialPort(SerialPort serialPort) {
+			_serialPort = serialPort;
+			_serialPort.Open();
+		}
+
+		public void Dispose() {
+			_serialPort.Dispose();
+		}
+
+		public IDisposable Subscribe(IObserver<string> observer) {
+			var rcvEvent = Observable.FromEventPattern<SerialDataReceivedEventHandler, SerialDataReceivedEventArgs>(
+					h => _serialPort.DataReceived += h, h => _serialPort.DataReceived -= h
+				).TakeWhile(e => e.EventArgs.EventType != SerialData.Eof)
+				.Select(e => e.Sender).Cast<SerialPort>()
+				.Select(e => {
+					var buf = new byte[e.BytesToRead];
+					e.Read(buf, 0, buf.Length);
+					return Encoding.ASCII.GetString(buf);
+				}).Scan(new string[1]{""}, (Sum, New) => string.Concat(Sum.Last(), New).Split('\n'))
+				.SelectMany(i => i.Take(i.Length - 1))
+				.Subscribe(observer);
+
+			var errEvent = Observable.FromEventPattern<SerialErrorReceivedEventHandler, SerialErrorReceivedEventArgs>(
+					h => _serialPort.ErrorReceived += h, h => _serialPort.ErrorReceived -= h
+				).Subscribe(e => observer.OnError(new Exception(e.EventArgs.EventType.ToString())));
+
+			return Disposable.Create(() => {
+				rcvEvent.Dispose();
+				errEvent.Dispose();
+			});
+		}
+
+		public void Send(string text) {
+			_serialPort.Write(text);
 		}
 	}
 }
